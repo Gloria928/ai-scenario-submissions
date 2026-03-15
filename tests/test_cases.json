@@ -1,0 +1,121 @@
+{
+  "assignments": {
+    "作业1：Python基础": {
+      "description": "Python基础语法练习",
+      "test_cases": [
+        {
+          "name": "hello_world测试",
+          "input": "",
+          "expected_output": "Hello, World!",
+          "points": 20
+        },
+        {
+          "name": "变量计算测试",
+          "input": "",
+          "expected_output": "15",
+          "points": 20
+        },
+        {
+          "name": "条件判断测试",
+          "input": "10",
+          "expected_output": "偶数",
+          "points": 20
+        },
+        {
+          "name": "循环测试",
+          "input": "",
+          "expected_output": "1\\n2\\n3\\n4\\n5",
+          "points": 20
+        },
+        {
+          "name": "函数测试",
+          "input": "3,4",
+          "expected_output": "7",
+          "points": 20
+        }
+      ],
+      "total_points": 100
+    },
+    "作业2：数据处理": {
+      "description": "Python数据处理练习",
+      "test_cases": [
+        {
+          "name": "列表操作测试",
+          "input": "",
+          "expected_output": "[1, 2, 3, 4, 5]",
+          "points": 25
+        },
+        {
+          "name": "字典操作测试",
+          "input": "",
+          "expected_output": "{'name': '张三', 'age': 20}",
+          "points": 25
+        },
+        {
+          "name": "文件读取测试",
+          "input": "test_data.txt",
+          "expected_output": "文件内容读取成功",
+          "points": 25
+        },
+        {
+          "name": "数据过滤测试",
+          "input": "[1,2,3,4,5,6,7,8,9,10]",
+          "expected_output": "[2, 4, 6, 8, 10]",
+          "points": 25
+        }
+      ],
+      "total_points": 100
+    },
+    "作业3：函数与模块": {
+      "description": "Python函数和模块练习",
+      "test_cases": [
+        {
+          "name": "函数定义测试",
+          "input": "5",
+          "expected_output": "120",
+          "points": 25
+        },
+        {
+          "name": "模块导入测试",
+          "input": "",
+          "expected_output": "math模块导入成功",
+          "points": 25
+        },
+        {
+          "name": "递归函数测试",
+          "input": "6",
+          "expected_output": "8",
+          "points": 25
+        },
+        {
+          "name": "lambda函数测试",
+          "input": "10,20",
+          "expected_output": "30",
+          "points": 25
+        }
+      ],
+      "total_points": 100
+    }
+  },
+  "grading_rules": {
+    "code_quality": {
+      "has_comments": 10,
+      "proper_naming": 10,
+      "code_structure": 10
+    },
+    "functionality": {
+      "passes_all_tests": 70
+    },
+    "bonus": {
+      "creative_solution": 10,
+      "efficient_code": 10
+    }
+  },
+  "feedback_templates": {
+    "excellent": "🎉 优秀！你的代码完全正确，结构清晰，注释完整。继续保持！",
+    "good": "👍 良好！代码基本正确，有一些小问题需要改进。",
+    "average": "📝 中等！代码能运行，但需要改进结构和逻辑。",
+    "needs_improvement": "🔧 需要改进！代码有较多问题，请参考反馈进行修改。",
+    "failed": "❌ 未通过！代码无法运行或完全错误，请重新学习相关知识点。"
+  }
+}
