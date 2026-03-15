@@ -1,0 +1,429 @@
+name: Python作业自动评分
+
+on:
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  grade-python-assignment:
+    runs-on: ubuntu-latest
+    if: contains(github.event.issue.labels.*.name, 'assignment-submission') && contains(github.event.issue.labels.*.name, 'lang-python')
+    
+    steps:
+    - name: 检查作业提交
+      id: check
+      run: |
+        echo "🎯 开始处理Python作业评分"
+        echo "Issue编号: ${{ github.event.issue.number }}"
+        echo "提交者: ${{ github.event.issue.user.login }}"
+        echo "标题: ${{ github.event.issue.title }}"
+        
+    - name: 检出代码
+      uses: actions/checkout@v4
+      
+    - name: 设置Python环境
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        
+    - name: 安装Python分析工具
+      run: |
+        python -m pip install --upgrade pip
+        pip install pylint==3.0.3
+        pip install black==23.11.0
+        pip install mypy==1.7.0
+        pip install radon==6.0.1
+        pip install bandit==1.7.5
+        pip install pytest==7.4.3
+        echo "✅ Python分析工具安装完成"
+        
+    - name: 提取提交的代码
+      id: extract
+      run: |
+        # 从Issue正文中提取Python代码
+        echo "${{ github.event.issue.body }}" > issue_content.txt
+        
+        # 使用正则提取代码块
+        python3 -c "
+        import re
+        with open('issue_content.txt', 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 查找Python代码块
+        python_blocks = re.findall(r'```python\s*(.*?)\s*```', content, re.DOTALL)
+        if python_blocks:
+            code = python_blocks[0]
+            with open('submission.py', 'w', encoding='utf-8') as f:
+                f.write(code)
+            print('✅ 提取到Python代码，保存为 submission.py')
+            print(f'代码长度: {len(code)} 字符')
+        else:
+            # 尝试查找普通代码块
+            code_blocks = re.findall(r'```\s*(.*?)\s*```', content, re.DOTALL)
+            if code_blocks:
+                code = code_blocks[0]
+                with open('submission.py', 'w', encoding='utf-8') as f:
+                    f.write(code)
+                print('✅ 提取到代码（非Python标记），保存为 submission.py')
+                print(f'代码长度: {len(code)} 字符')
+            else:
+                print('❌ 未找到代码块')
+                exit(1)
+        "
+        
+        # 检查文件是否存在
+        if [ -f "submission.py" ]; then
+          echo "文件大小: $(wc -l < submission.py) 行"
+          echo "提取成功"
+        else
+          echo "❌ 代码提取失败"
+          exit 1
+        fi
+        
+    - name: 基础代码检查
+      id: basic_check
+      run: |
+        echo "🔍 开始基础代码检查..."
+        
+        # 1. 检查文件是否为空
+        if [ ! -s "submission.py" ]; then
+          echo "❌ 错误：提交的代码文件为空"
+          exit 1
+        fi
+        
+        # 2. 检查文件大小
+        FILE_SIZE=$(wc -c < submission.py)
+        if [ $FILE_SIZE -gt 100000 ]; then
+          echo "⚠️ 警告：代码文件较大 ($FILE_SIZE 字节)"
+        fi
+        
+        # 3. 检查是否有明显恶意代码
+        DANGEROUS_PATTERNS=("os.system" "subprocess.call" "__import__" "eval(" "exec(")
+        for pattern in "${DANGEROUS_PATTERNS[@]}"; do
+          if grep -q "$pattern" submission.py; then
+            echo "⚠️ 安全警告：检测到可能危险的代码模式 '$pattern'"
+          fi
+        done
+        
+        echo "✅ 基础检查通过"
+        
+    - name: 语法和风格检查
+      id: style_check
+      run: |
+        echo "🎨 开始语法和风格检查..."
+        
+        # 1. 使用pylint进行代码质量检查
+        echo "=== Pylint检查 ==="
+        pylint --exit-zero --rcfile=/dev/null submission.py > pylint_report.txt || true
+        
+        # 提取pylint分数
+        PYLINT_SCORE=$(grep "Your code has been rated at" pylint_report.txt | sed 's/.*rated at //' | sed 's/\/.*//' || echo "0")
+        echo "Pylint分数: $PYLINT_SCORE/10"
+        
+        # 2. 使用black检查代码格式
+        echo "=== Black格式检查 ==="
+        black --check --diff submission.py > black_report.txt 2>&1 || true
+        
+        # 3. 使用mypy进行类型检查（如果有类型注解）
+        echo "=== Mypy类型检查 ==="
+        mypy --ignore-missing-imports submission.py > mypy_report.txt 2>&1 || true
+        
+        # 保存检查结果
+        echo "pylint_score=$PYLINT_SCORE" >> $GITHUB_OUTPUT
+        
+    - name: 代码复杂度分析
+      id: complexity
+      run: |
+        echo "📊 开始代码复杂度分析..."
+        
+        # 1. 使用radon分析圈复杂度
+        echo "=== 圈复杂度分析 ==="
+        radon cc submission.py -a > complexity_report.txt || true
+        
+        # 提取平均复杂度
+        AVG_COMPLEXITY=$(grep "Average complexity:" complexity_report.txt | awk '{print $3}' || echo "0")
+        
+        # 2. 统计代码行数
+        echo "=== 代码统计 ==="
+        TOTAL_LINES=$(wc -l < submission.py)
+        CODE_LINES=$(grep -c -v '^\s*$' submission.py | grep -c -v '^\s*#' || echo "0")
+        COMMENT_LINES=$(grep -c '^\s*#' submission.py || echo "0")
+        
+        echo "总行数: $TOTAL_LINES"
+        echo "代码行数: $CODE_LINES"
+        echo "注释行数: $COMMENT_LINES"
+        echo "注释比例: $((COMMENT_LINES * 100 / (CODE_LINES + COMMENT_LINES)))%"
+        echo "平均圈复杂度: $AVG_COMPLEXITY"
+        
+        echo "avg_complexity=$AVG_COMPLEXITY" >> $GITHUB_OUTPUT
+        echo "code_lines=$CODE_LINES" >> $GITHUB_OUTPUT
+        echo "comment_lines=$COMMENT_LINES" >> $GITHUB_OUTPUT
+        
+    - name: 安全扫描
+      id: security
+      run: |
+        echo "🛡️ 开始安全扫描..."
+        
+        # 使用bandit进行安全扫描
+        bandit -r submission.py -f json -o bandit_report.json 2>/dev/null || true
+        
+        # 解析安全报告
+        if [ -f "bandit_report.json" ]; then
+          SECURITY_ISSUES=$(python3 -c "
+import json
+try:
+    with open('bandit_report.json', 'r') as f:
+        data = json.load(f)
+    issues = len(data.get('results', []))
+    print(f'安全问题数量: {issues}')
+    
+    # 按严重程度分类
+    high = sum(1 for r in data.get('results', []) if r.get('issue_confidence') == 'HIGH')
+    medium = sum(1 for r in data.get('results', []) if r.get('issue_confidence') == 'MEDIUM')
+    low = sum(1 for r in data.get('results', []) if r.get('issue_confidence') == 'LOW')
+    
+    print(f'高危: {high}, 中危: {medium}, 低危: {low}')
+    
+except Exception as e:
+    print(f'解析安全报告失败: {e}')
+    print('安全问题数量: 0')
+")
+        else
+          echo "安全扫描未完成"
+        fi
+        
+    - name: 运行测试（如果有测试文件）
+      id: run_tests
+      run: |
+        echo "🧪 开始运行测试..."
+        
+        # 检查是否有测试文件
+        if [ -f "test_submission.py" ]; then
+          echo "找到测试文件 test_submission.py"
+          
+          # 运行pytest测试
+          pytest test_submission.py -v --tb=short > pytest_report.txt 2>&1 || true
+          
+          # 提取测试结果
+          TEST_RESULT=$(tail -20 pytest_report.txt | grep -E "passed|failed|error" | tail -1 || echo "0 passed, 0 failed")
+          echo "测试结果: $TEST_RESULT"
+          
+          # 解析通过率
+          if [[ "$TEST_RESULT" =~ ([0-9]+) passed ]]; then
+            PASSED=${BASH_REMATCH[1]}
+          else
+            PASSED=0
+          fi
+          
+          if [[ "$TEST_RESULT" =~ ([0-9]+) failed ]]; then
+            FAILED=${BASH_REMATCH[1]}
+          else
+            FAILED=0
+          fi
+          
+          TOTAL=$((PASSED + FAILED))
+          if [ $TOTAL -gt 0 ]; then
+            PASS_RATE=$((PASSED * 100 / TOTAL))
+          else
+            PASS_RATE=0
+          fi
+          
+          echo "测试通过率: $PASS_RATE% ($PASSED/$TOTAL)"
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "total_tests=$TOTAL" >> $GITHUB_OUTPUT
+          echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
+          
+        else
+          echo "未找到测试文件，跳过测试运行"
+          echo "passed=0" >> $GITHUB_OUTPUT
+          echo "total_tests=0" >> $GITHUB_OUTPUT
+          echo "pass_rate=0" >> $GITHUB_OUTPUT
+        fi
+        
+    - name: 计算总分
+      id: calculate
+      run: |
+        echo "🧮 开始计算总分..."
+        
+        # 获取各项分数
+        PYLINT_SCORE="${{ steps.style_check.outputs.pylint_score }}"
+        PASS_RATE="${{ steps.run_tests.outputs.pass_rate }}"
+        AVG_COMPLEXITY="${{ steps.complexity.outputs.avg_complexity }}"
+        CODE_LINES="${{ steps.complexity.outputs.code_lines }}"
+        COMMENT_LINES="${{ steps.complexity.outputs.comment_lines }}"
+        
+        # 默认值处理
+        PYLINT_SCORE=${PYLINT_SCORE:-0}
+        PASS_RATE=${PASS_RATE:-0}
+        AVG_COMPLEXITY=${AVG_COMPLEXITY:-0}
+        CODE_LINES=${CODE_LINES:-0}
+        COMMENT_LINES=${COMMENT_LINES:-0}
+        
+        # 1. 正确性分数（基于测试通过率）40%
+        CORRECTNESS_SCORE=$((PASS_RATE * 40 / 100))
+        
+        # 2. 代码质量分数（基于pylint）30%
+        # pylint满分10分，转换为30分制
+        QUALITY_SCORE=$(echo "scale=2; $PYLINT_SCORE * 3" | bc)
+        QUALITY_SCORE=${QUALITY_SCORE%.*}
+        
+        # 3. 代码规范分数 20%
+        # 注释比例（至少10%的注释）
+        if [ $CODE_LINES -gt 0 ]; then
+          COMMENT_RATIO=$((COMMENT_LINES * 100 / (CODE_LINES + COMMENT_LINES)))
+        else
+          COMMENT_RATIO=0
+        fi
+        
+        # 圈复杂度评分（越低越好）
+        if (( $(echo "$AVG_COMPLEXITY <= 5" | bc -l) )); then
+          COMPLEXITY_SCORE=10
+        elif (( $(echo "$AVG_COMPLEXITY <= 10" | bc -l) )); then
+          COMPLEXITY_SCORE=5
+        else
+          COMPLEXITY_SCORE=0
+        fi
+        
+        # 注释比例评分
+        if [ $COMMENT_RATIO -ge 20 ]; then
+          COMMENT_SCORE=10
+        elif [ $COMMENT_RATIO -ge 10 ]; then
+          COMMENT_SCORE=5
+        else
+          COMMENT_SCORE=0
+        fi
+        
+        STANDARD_SCORE=$((COMPLEXITY_SCORE + COMMENT_SCORE))
+        
+        # 4. 创新性分数 10%（基础分，可由教师调整）
+        INNOVATION_SCORE=5
+        
+        # 计算总分
+        TOTAL_SCORE=$((CORRECTNESS_SCORE + QUALITY_SCORE + STANDARD_SCORE + INNOVATION_SCORE))
+        
+        # 确保不超过100分
+        if [ $TOTAL_SCORE -gt 100 ]; then
+          TOTAL_SCORE=100
+        fi
+        
+        echo "各项分数："
+        echo "- 正确性 ($PASS_RATE%): $CORRECTNESS_SCORE/40"
+        echo "- 代码质量 ($PYLINT_SCORE/10): $QUALITY_SCORE/30"
+        echo "- 代码规范: $STANDARD_SCORE/20"
+        echo "  - 圈复杂度 ($AVG_COMPLEXITY): $COMPLEXITY_SCORE/10"
+        echo "  - 注释比例 ($COMMENT_RATIO%): $COMMENT_SCORE/10"
+        echo "- 创新性: $INNOVATION_SCORE/10"
+        echo "总分: $TOTAL_SCORE/100"
+        
+        echo "total_score=$TOTAL_SCORE" >> $GITHUB_OUTPUT
+        echo "correctness=$CORRECTNESS_SCORE" >> $GITHUB_OUTPUT
+        echo "quality=$QUALITY_SCORE" >> $GITHUB_OUTPUT
+        echo "standard=$STANDARD_SCORE" >> $GITHUB_OUTPUT
+        
+    - name: 生成评分报告
+      uses: actions/github-script@v6
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const totalScore = "${{ steps.calculate.outputs.total_score }}";
+          const correctness = "${{ steps.calculate.outputs.correctness }}";
+          const quality = "${{ steps.calculate.outputs.quality }}";
+          const standard = "${{ steps.calculate.outputs.standard }}";
+          const passRate = "${{ steps.run_tests.outputs.pass_rate }}";
+          const pylintScore = "${{ steps.style_check.outputs.pylint_score }}";
+          const avgComplexity = "${{ steps.complexity.outputs.avg_complexity }}";
+          const commentRatio = "${{ steps.complexity.outputs.comment_lines }}" && "${{ steps.complexity.outputs.code_lines }}" 
+            ? Math.round(parseInt("${{ steps.complexity.outputs.comment_lines }}") * 100 / 
+              (parseInt("${{ steps.complexity.outputs.code_lines }}") + parseInt("${{ steps.complexity.outputs.comment_lines }}")))
+            : 0;
+          
+          // 根据分数给出评级
+          let grade = "待改进";
+          let emoji = "📝";
+          if (parseFloat(totalScore) >= 90) {
+            grade = "优秀";
+            emoji = "🏆";
+          } else if (parseFloat(totalScore) >= 80) {
+            grade = "良好";
+            emoji = "👍";
+          } else if (parseFloat(totalScore) >= 70) {
+            grade = "中等";
+            emoji = "✅";
+          } else if (parseFloat(totalScore) >= 60) {
+            grade = "及格";
+            emoji = "📊";
+          }
+          
+          const comment = `
+          ${emoji} **Python作业评分报告**
+          
+          ## 📊 总分：${totalScore}/100 （${grade}）
+          
+          ### 详细评分：
+          | 评分维度 | 分数 | 说明 |
+          |----------|------|------|
+          | **正确性** | ${correctness}/40 | 测试通过率：${passRate}% |
+          | **代码质量** | ${quality}/30 | Pylint评分：${pylintScore}/10 |
+          | **代码规范** | ${standard}/20 | 圈复杂度：${avgComplexity}，注释比例：${commentRatio}% |
+          | **创新性** | 5/10 | 基础创新分 |
+          
+          ### 📈 分析报告：
+          1. **代码质量**：${parseFloat(pylintScore) >= 8 ? "优秀" : parseFloat(pylintScore) >= 6 ? "良好" : "需要改进"}
+          2. **测试覆盖**：${parseFloat(passRate) >= 80 ? "充分" : parseFloat(passRate) >= 50 ? "基本" : "不足"}
+          3. **代码复杂度**：${parseFloat(avgComplexity) <= 5 ? "简单" : parseFloat(avgComplexity) <= 10 ? "适中" : "复杂"}
+          4. **注释规范**：${commentRatio >= 20 ? "充分" : commentRatio >= 10 ? "基本" : "不足"}
+          
+          ### 💡 改进建议：
+          ${parseFloat(totalScore) >= 80 ? 
+            "🎉 代码质量很高！继续保持良好的编程习惯。" :
+            parseFloat(totalScore) >= 60 ?
+            "✅ 基本达到要求，可以在以下方面改进：" :
+            "📝 需要较多改进，建议："}
+          
+          ${parseFloat(pylintScore) < 6 ? "- 改进代码风格，遵循PEP8规范\n" : ""}
+          ${parseFloat(passRate) < 50 ? "- 提高代码正确性，确保基本功能正常\n" : ""}
+          ${parseFloat(avgComplexity) > 10 ? "- 简化复杂函数，提高代码可读性\n" : ""}
+          ${commentRatio < 10 ? "- 添加更多注释，说明代码逻辑\n" : ""}
+          
+          ### 🎯 下次作业建议：
+          1. 提前测试代码功能
+          2. 遵循Python编码规范
+          3. 添加适当的注释说明
+          4. 保持代码简洁清晰
+          
+          ---
+          *评分时间：${new Date().toLocaleString('zh-CN')}*
+          *系统：AI场景编程教材自动评分系统*
+          `;
+          
+          // 添加评论到Issue
+          github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            body: comment
+          });
+          
+          // 更新Issue标签
+          const newLabels = context.payload.issue.labels
+            .filter(label => label.name !== 'pending-grading')
+            .map(label => label.name);
+          
+          newLabels.push('graded');
+          newLabels.push(`score-${Math.floor(parseFloat(totalScore) / 10) * 10}`);
+          
+          github.rest.issues.update({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+            labels: newLabels,
+            state: 'closed'
+          });
+          
+    - name: 清理临时文件
+      run: |
+        echo "🧹 清理临时文件..."
+        rm -f submission.py issue_content.txt *.txt *.json 2>/dev/null || true
+        echo "✅ 清理完成"
