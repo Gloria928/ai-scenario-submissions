@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI场景编程 - 作业提交测试</title>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #f8f9fa; padding: 10px; border-radius: 5px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>🎯 AI场景编程作业提交系统 - 功能测试</h1>
+    
+    <div id="status" class="status info">
+        正在测试系统连接...
+    </div>
+    
+    <h2>1. 测试健康检查</h2>
+    <button onclick="testHealth()">测试健康检查</button>
+    <pre id="healthResult"></pre>
+    
+    <h2>2. 测试作业提交</h2>
+    <button onclick="testSubmit()">测试提交作业</button>
+    <pre id="submitResult"></pre>
+    
+    <h2>3. 测试状态查询</h2>
+    <div>
+        <input type="text" id="submissionId" placeholder="输入提交ID" style="width: 300px; padding: 5px;">
+        <button onclick="testStatus()">查询状态</button>
+    </div>
+    <pre id="statusResult"></pre>
+    
+    <h2>系统信息</h2>
+    <ul>
+        <li>后端地址: <code>https://ai-scenario-submissions.onrender.com</code></li>
+        <li>教师: Gloria928</li>
+        <li>学生规模: 60人</li>
+        <li>GitHub仓库: <a href="https://github.com/Gloria928/ai-scenario-submissions" target="_blank">查看</a></li>
+        <li>Gitee教材: <a href="https://gitee.com/Gloria1248275/ai-scenario-programming-textbook" target="_blank">查看</a></li>
+    </ul>
+    
+    <script>
+        const API_BASE = 'https://ai-scenario-submissions.onrender.com';
+        
+        function updateStatus(message, type = 'info') {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+        
+        async function testHealth() {
+            updateStatus('正在测试健康检查...', 'info');
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                document.getElementById('healthResult').textContent = JSON.stringify(data, null, 2);
+                updateStatus('✅ 健康检查测试成功！', 'success');
+            } catch (error) {
+                document.getElementById('healthResult').textContent = `错误: ${error.message}`;
+                updateStatus('❌ 健康检查测试失败', 'error');
+            }
+        }
+        
+        async function testSubmit() {
+            updateStatus('正在测试作业提交...', 'info');
+            try {
+                const submissionData = {
+                    studentName: '测试学生',
+                    studentId: '20240001',
+                    assignment: '作业1：Python基础',
+                    language: 'python',
+                    code: `def hello_world():
+    print("Hello, World!")
+    return "Success"
+
+if __name__ == "__main__":
+    result = hello_world()
+    print(f"结果: {result}")`
+                };
+                
+                const response = await fetch(`${API_BASE}/api/submit`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(submissionData)
+                });
+                
+                const data = await response.json();
+                document.getElementById('submitResult').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.success) {
+                    updateStatus(`✅ 作业提交成功！提交ID: ${data.data.submissionId}`, 'success');
+                    document.getElementById('submissionId').value = data.data.submissionId;
+                } else {
+                    updateStatus('❌ 作业提交失败', 'error');
+                }
+            } catch (error) {
+                document.getElementById('submitResult').textContent = `错误: ${error.message}`;
+                updateStatus('❌ 作业提交测试失败', 'error');
+            }
+        }
+        
+        async function testStatus() {
+            const submissionId = document.getElementById('submissionId').value.trim();
+            if (!submissionId) {
+                alert('请输入提交ID');
+                return;
+            }
+            
+            updateStatus(`正在查询提交状态: ${submissionId}`, 'info');
+            try {
+                const response = await fetch(`${API_BASE}/api/status/${submissionId}`);
+                const data = await response.json();
+                document.getElementById('statusResult').textContent = JSON.stringify(data, null, 2);
+                
+                if (data.success) {
+                    updateStatus(`✅ 状态查询成功！状态: ${data.data.status}`, 'success');
+                } else {
+                    updateStatus('❌ 状态查询失败', 'error');
+                }
+            } catch (error) {
+                document.getElementById('statusResult').textContent = `错误: ${error.message}`;
+                updateStatus('❌ 状态查询测试失败', 'error');
+            }
+        }
+        
+        // 页面加载时自动测试健康检查
+        window.onload = testHealth;
+    </script>
+</body>
+</html>
