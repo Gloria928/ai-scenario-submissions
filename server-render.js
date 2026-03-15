@@ -1,12 +1,13 @@
 /**
- * AI场景编程教材 - 作业提交代理服务器（Render优化版）
- * 专为 Gloria928 定制 - Render.com部署版本
+ * AI场景编程教材 - 作业提交代理服务器（Render优化修复版）
+ * 专为 Gloria928 定制 - 修复静态文件服务问题
  */
 
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
@@ -22,6 +23,20 @@ app.use(cors({
 
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// 静态文件服务 - 修复路径问题
+app.use('/public', express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    // 设置正确的MIME类型
+    if (filePath.endsWith('.html')) {
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    } else if (filePath.endsWith('.css')) {
+      res.setHeader('Content-Type', 'text/css');
+    } else if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript');
+    }
+  }
+}));
 
 // 课堂规模优化：60人，每周一次作业
 const submitLimiter = rateLimit({
@@ -53,10 +68,6 @@ if (!GITHUB_CONFIG.token) {
   console.log('3. 值为你的GitHub Personal Access Token');
 }
 
-// 简单内存缓存
-const cache = new Map();
-const CACHE_TTL = 5 * 60 * 1000; // 5分钟缓存
-
 // 提交状态跟踪
 const submissionStatus = new Map();
 
@@ -74,7 +85,13 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     submissions: submissionStatus.size,
     environment: process.env.NODE_ENV || 'development',
-    port: PORT
+    port: PORT,
+    endpoints: {
+      health: 'GET /health',
+      submit: 'POST /api/submit',
+      status: 'GET /api/status/:id',
+      frontend: 'GET /public/submission-form.html'
+    }
   });
 });
 
@@ -83,10 +100,30 @@ app.get('/', (req, res) => {
   res.redirect('/health');
 });
 
-// 静态文件服务
-app.use('/public', express.static('public'));
+// 系统信息
+app.get('/api/info', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      system: 'AI场景编程作业提交系统',
+      version: '1.0.0',
+      teacher: 'Gloria928',
+      classSize: 60,
+      assignments: [
+        '作业1：Python基础',
+        '作业2：数据处理',
+        '作业3：函数与模块',
+        '作业4：面向对象编程',
+        '作业5：Web开发基础'
+      ],
+      supportedLanguages: ['Python', 'JavaScript', 'Java'],
+      maxCodeLength: 5000,
+      submissionLimit: '10次/15分钟'
+    }
+  });
+});
 
-// 提交作业 - 简化版本
+// 提交作业
 app.post('/api/submit', submitLimiter, async (req, res) => {
   try {
     const { studentName, studentId, assignment, language = 'python', code } = req.body;
@@ -100,6 +137,22 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
       });
     }
     
+    if (code.length > 5000) {
+      return res.status(400).json({
+        success: false,
+        error: '代码过长',
+        message: '代码长度不能超过5000字符。'
+      });
+    }
+    
+    if (code.length < 10) {
+      return res.status(400).json({
+        success: false,
+        error: '代码过短',
+        message: '请提交完整的代码。'
+      });
+    }
+    
     // 生成提交ID
     const submissionId = `sub_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
     
@@ -107,8 +160,11 @@ app.post('/api/submit', submitLimiter, async (req, res) => {
     submissionStatus.set(submissionId, {
       status: 'pending',
       studentName,
+      studentId: studentId || '未提供',
       assignment,
-      submittedAt: new Date().toISOString()
+      language,
+      submittedAt: new Date().toISOString(),
+      codeLength: code.length
     });
     
     console.log(`📤 收到作业提交：${submissionId} - ${studentName} - ${assignment}`);
@@ -133,6 +189,7 @@ ${code}
 ## 系统信息
 - **提交时间**：${new Date().toLocaleString('zh-CN')}
 - **状态**：待评分
+- **代码长度**：${code.length} 字符
 
 ---
 *由AI场景编程教材作业系统自动创建*`;
@@ -159,7 +216,8 @@ ${code}
           ...submissionStatus.get(submissionId),
           status: 'submitted',
           issueNumber: response.data.number,
-          issueUrl: response.data.html_url
+          issueUrl: response.data.html_url,
+          githubSubmittedAt: new Date().toISOString()
         });
         
         console.log(`✅ 作业提交成功：${submissionId} -> Issue #${response.data.number}`);
@@ -169,7 +227,8 @@ ${code}
         submissionStatus.set(submissionId, {
           ...submissionStatus.get(submissionId),
           status: 'failed',
-          error: error.message
+          error: error.message,
+          failedAt: new Date().toISOString()
         });
       }
     }, 100);
@@ -183,7 +242,8 @@ ${code}
         status: 'pending',
         message: '你的作业已成功接收，正在提交到评分系统。',
         instructions: '请保存好提交ID以便查询评分结果。',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        estimatedTime: '1-3分钟完成评分'
       }
     });
     
@@ -205,19 +265,26 @@ app.get('/api/status/:submissionId', async (req, res) => {
     if (!submissionStatus.has(submissionId)) {
       return res.status(404).json({
         success: false,
-        error: '提交记录不存在'
+        error: '提交记录不存在',
+        message: '请检查提交ID是否正确。'
       });
     }
     
     const status = submissionStatus.get(submissionId);
+    const elapsedMinutes = Math.floor((Date.now() - new Date(status.submittedAt).getTime()) / 60000);
+    
     const response = {
       success: true,
       data: {
         submissionId,
         studentName: status.studentName,
+        studentId: status.studentId,
         assignment: status.assignment,
+        language: status.language,
         status: status.status,
-        submittedAt: status.submittedAt
+        submittedAt: status.submittedAt,
+        elapsedMinutes,
+        codeLength: status.codeLength
       }
     };
     
@@ -225,6 +292,13 @@ app.get('/api/status/:submissionId', async (req, res) => {
     if (status.issueNumber) {
       response.data.issueNumber = status.issueNumber;
       response.data.issueUrl = status.issueUrl;
+      response.data.githubSubmittedAt = status.githubSubmittedAt;
+    }
+    
+    // 如果失败，添加错误信息
+    if (status.error) {
+      response.data.error = status.error;
+      response.data.failedAt = status.failedAt;
     }
     
     res.json(response);
@@ -233,9 +307,38 @@ app.get('/api/status/:submissionId', async (req, res) => {
     console.error('查询状态错误:', error);
     res.status(500).json({
       success: false,
-      error: '查询状态失败'
+      error: '查询状态失败',
+      message: '系统暂时无法查询状态，请稍后重试。'
     });
   }
+});
+
+// 课堂统计
+app.get('/api/stats', (req, res) => {
+  const stats = {
+    totalSubmissions: submissionStatus.size,
+    pending: Array.from(submissionStatus.values()).filter(s => s.status === 'pending').length,
+    submitted: Array.from(submissionStatus.values()).filter(s => s.status === 'submitted').length,
+    failed: Array.from(submissionStatus.values()).filter(s => s.status === 'failed').length,
+    byAssignment: {},
+    byLanguage: {}
+  };
+  
+  // 按作业统计
+  Array.from(submissionStatus.values()).forEach(submission => {
+    stats.byAssignment[submission.assignment] = (stats.byAssignment[submission.assignment] || 0) + 1;
+    stats.byLanguage[submission.language] = (stats.byLanguage[submission.language] || 0) + 1;
+  });
+  
+  res.json({
+    success: true,
+    data: {
+      ...stats,
+      teacher: 'Gloria928',
+      classSize: 60,
+      activeStudents: new Set(Array.from(submissionStatus.values()).map(s => s.studentName)).size
+    }
+  });
 });
 
 // 错误处理中间件
@@ -244,34 +347,50 @@ app.use((err, req, res, next) => {
   res.status(500).json({
     success: false,
     error: '系统暂时不可用',
-    message: '请稍后重试。'
+    message: '请稍后重试。',
+    timestamp: new Date().toISOString()
   });
 });
 
-// 404处理
+// 404处理 - 提供有用的信息
 app.use((req, res) => {
   res.status(404).json({
     success: false,
     error: '接口不存在',
-    message: '请求的接口不存在。',
+    message: '请求的接口不存在，请检查URL是否正确。',
     availableEndpoints: [
       'GET  /health             健康检查',
+      'GET  /api/info           系统信息',
       'POST /api/submit         提交作业',
       'GET  /api/status/:id     查询提交状态',
-      'GET  /public/*           静态文件'
-    ]
+      'GET  /api/stats          课堂统计',
+      'GET  /public/*           前端表单和静态文件'
+    ],
+    example: {
+      submit: 'POST /api/submit {studentName: "张三", assignment: "作业1", code: "print(\'Hello\')"}',
+      check: 'GET /api/status/sub_1234567890_abc123'
+    }
   });
 });
 
 // 启动服务器
 const server = app.listen(PORT, () => {
   console.log(`
-  🚀 AI场景编程作业提交系统已启动（Render优化版）
+  🚀 AI场景编程作业提交系统已启动（修复版）
   👩‍🏫 教师：Gloria928
   📍 地址：http://localhost:${PORT}
-  🌐 健康检查：/health
-  📤 提交作业：/api/submit
-  🔍 查询状态：/api/status/:id
+  🌐 外部地址：https://ai-scenario-submissions.onrender.com
+  
+  📊 可用接口：
+  - GET  /health             健康检查
+  - GET  /api/info           系统信息
+  - POST /api/submit         提交作业
+  - GET  /api/status/:id     查询提交状态
+  - GET  /api/stats          课堂统计
+  - GET  /public/*           前端表单和静态文件
+  
+  🎯 前端表单：
+  https://ai-scenario-submissions.onrender.com/public/submission-form.html
   
   ⚠️ 环境变量检查：
   - GITHUB_TOKEN: ${GITHUB_CONFIG.token ? '✅ 已设置' : '❌ 未设置'}
@@ -280,10 +399,7 @@ const server = app.listen(PORT, () => {
   - PORT: ${PORT}
   - NODE_ENV: ${process.env.NODE_ENV || 'development'}
   
-  🎯 下一步：
-  1. 访问 /health 检查服务状态
-  2. 访问 /public/submission-form.html 使用前端表单
-  3. 测试作业提交功能
+  🎉 系统已准备就绪，可以开始使用！
   `);
 });
 
