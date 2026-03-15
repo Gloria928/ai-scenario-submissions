@@ -4,8 +4,9 @@
   "description": "AI场景编程教材作业提交与自动评分系统 - 专为Gloria928定制",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js",
+    "start": "node server-render.js",
+    "dev": "nodemon server-render.js",
+    "render-start": "node server-render.js",
     "test": "echo \"运行测试: npm run test-submit && npm run test-status\"",
     "test-submit": "node test-submit.js",
     "test-status": "node test-status.js",
