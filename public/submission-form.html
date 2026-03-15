@@ -298,7 +298,31 @@
         </div>
         
         <div class="content">
-            <form id="submissionForm">
+            <!-- API配置提示 -->
+            <div id="configAlert" class="status-container show status-info">
+                <div class="status-header">
+                    <span class="status-icon">⚙️</span>
+                    <span>系统配置提示</span>
+                </div>
+                <p><strong>重要：</strong>请先配置后端服务地址</p>
+                <div class="instructions">
+                    <p>部署完成后，请执行以下操作：</p>
+                    <ol>
+                        <li>获取你的Render.com部署地址</li>
+                        <li>修改下方配置中的API地址</li>
+                        <li>保存并重新加载页面</li>
+                    </ol>
+                </div>
+                <div style="margin-top: 15px;">
+                    <label for="apiUrlInput">后端API地址：</label>
+                    <input type="text" id="apiUrlInput" placeholder="https://你的-render-地址.onrender.com" style="width: 100%; margin-top: 5px;">
+                    <button class="check-status-btn" onclick="saveApiUrl()" style="margin-top: 10px;">
+                        <i class="fas fa-save"></i> 保存配置
+                    </button>
+                </div>
+            </div>
+            
+            <form id="submissionForm" style="display: none;">
                 <div class="form-group">
                     <label for="studentName">
                         <i class="fas fa-user"></i> 姓名
@@ -390,8 +414,8 @@ if __name__ == '__main__':
     </div>
 
     <script>
-        // 配置 - 部署时需要修改这个地址
-        const API_BASE_URL = 'https://你的后端服务地址'; // 例如：https://ai-textbook-submissions.vercel.app
+        // 配置 - 从localStorage读取或使用默认值
+        let API_BASE_URL = localStorage.getItem('ai_scenario_api_url') || '';
         
         // 元素引用
         const form = document.getElementById('submissionForm');
@@ -400,6 +424,65 @@ if __name__ == '__main__':
         const submitBtn = document.getElementById('submitBtn');
         const statusContainer = document.getElementById('statusContainer');
         const languageSelect = document.getElementById('language');
+        const configAlert = document.getElementById('configAlert');
+        const apiUrlInput = document.getElementById('apiUrlInput');
+        
+        // 初始化页面
+        function initPage() {
+            if (API_BASE_URL && API_BASE_URL.trim() !== '') {
+                // 已有配置，隐藏配置提示，显示表单
+                configAlert.style.display = 'none';
+                form.style.display = 'block';
+                apiUrlInput.value = API_BASE_URL;
+                
+                // 测试连接
+                testConnection();
+            } else {
+                // 没有配置，显示配置提示
+                configAlert.style.display = 'block';
+                form.style.display = 'none';
+            }
+        }
+        
+        // 保存API地址
+        function saveApiUrl() {
+            const url = apiUrlInput.value.trim();
+            if (!url) {
+                alert('请输入API地址');
+                return;
+            }
+            
+            // 验证URL格式
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                alert('API地址必须以 http:// 或 https:// 开头');
+                return;
+            }
+            
+            // 保存到localStorage
+            localStorage.setItem('ai_scenario_api_url', url);
+            API_BASE_URL = url;
+            
+            // 重新初始化页面
+            initPage();
+            
+            // 显示成功消息
+            showStatus('success', 'API地址配置成功！');
+        }
+        
+        // 测试连接
+        async function testConnection() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/health`);
+                if (response.ok) {
+                    const data = await response.json();
+                    showStatus('success', `✅ 后端服务连接成功！\n教师：${data.teacher}\n学生：${data.students}人`);
+                } else {
+                    showStatus('error', '❌ 后端服务连接失败，请检查地址是否正确');
+                }
+            } catch (error) {
+                showStatus('error', '❌ 无法连接到后端服务，请检查网络和地址');
+            }
+        }
         
         // 字符计数
         codeTextarea.addEventListener('input', function() {
@@ -850,18 +933,16 @@ public class HelloWorld {
             });
         }
         
-        // 页面加载时检查URL参数
+        // 页面加载时初始化
         window.addEventListener('load', function() {
+            initPage();
+            
+            // 检查URL参数
             const urlParams = new URLSearchParams(window.location.search);
             const submissionId = urlParams.get('submissionId');
             
-            if (submissionId) {
+            if (submissionId && API_BASE_URL) {
                 checkStatus(submissionId);
-            }
-            
-            // 检查API地址是否配置
-            if (API_BASE_URL.includes('你的后端服务地址')) {
-                showStatus('error', '⚠️ 系统未配置：请先设置API_BASE_URL地址');
             }
         });
     </script>
